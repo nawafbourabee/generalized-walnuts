@@ -20,6 +20,13 @@ split into 2^ℓ micro steps, with the randomized level selection and exact
 Hastings correction of the paper) and the same orbit-selection mechanism;
 only the flow and the stopping rule change.
 
+**Headline result** (Section 5): the isokinetic anchored sampler
+`walnuts-ai` is the most robust of the six variants, improving ESS per
+gradient by about **10.8×** over `walnuts-h` on Neal's funnel and performing
+strongly on nonlinear and hierarchical targets, while paying only ~10%
+overhead on an easy Gaussian-regression target where the standard U-turn
+sampler already excels.
+
 Function names follow the paper's pseudocode listings; **[LISTINGS.md](LISTINGS.md)**
 gives the complete listing-by-listing map, including the few places where a
 listing is realized in fused or streaming form.
