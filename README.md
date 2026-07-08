@@ -140,7 +140,17 @@ LISTINGS.md        pseudocode <-> code map
 
 ## Citation
 
-See [CITATION.cff](CITATION.cff), or cite the paper directly.
+If you use this code, please cite the paper:
+
+```bibtex
+@unpublished{BouRabeeCarpenterKleppe2026,
+  author = {Bou-Rabee, Nawaf and Carpenter, Bob and Kleppe, Tore Selland},
+  title  = {{WALNUTS} with General Measure-Preserving Flows and
+            Initial-Point-Symmetric Stopping Rules},
+  year   = {2026},
+  note   = {Preprint}
+}
+```
 
 ## License
 
