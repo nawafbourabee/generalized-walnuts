@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the companion paper."
+title: "Generalized WALNUTS"
+version: 1.0.0
+date-released: 2026-07-08
+license: MIT
+authors:
+  - family-names: Bou-Rabee
+    given-names: Nawaf
+    affiliation: "Rutgers University"
+  - family-names: Carpenter
+    given-names: Bob
+    affiliation: "Flatiron Institute"
+  - family-names: Kleppe
+    given-names: Tore Selland
+    affiliation: "University of Stavanger"
+preferred-citation:
+  type: article
+  title: "WALNUTS with General Measure-Preserving Flows and Initial-Point-Symmetric Stopping Rules"
+  year: 2026
+  authors:
+    - family-names: Bou-Rabee
+      given-names: Nawaf
+    - family-names: Carpenter
+      given-names: Bob
+    - family-names: Kleppe
+      given-names: Tore Selland
