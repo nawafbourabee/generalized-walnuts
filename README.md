@@ -24,6 +24,11 @@ Function names follow the paper's pseudocode listings; **[LISTINGS.md](LISTINGS.
 gives the complete listing-by-listing map, including the few places where a
 listing is realized in fused or streaming form.
 
+This repository accompanies the paper and generalizes the original WALNUTS
+algorithm; for the reference implementation of standard WALNUTS
+(Hamiltonian flow, U-turn rule), see
+[flatironinstitute/walnuts](https://github.com/flatironinstitute/walnuts).
+
 ## Install
 
 ```bash
