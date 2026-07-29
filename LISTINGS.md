@@ -1,38 +1,37 @@
 # Pseudocode ↔ code map
 
-Every listing in the companion paper corresponds to a specific function in
+Every listing in the companion paper corresponds to a function in
 `gwalnuts/engine.py` (samplers), `gwalnuts/tuning.py` (calibration), or
-`gwalnuts/grid.py` (experimental protocol).  This file records the mapping
-and the few places where the implementation realizes a listing in a fused or
-streaming form; the realized transition kernel is identical.
+`gwalnuts/grid.py` (experiments).  The table below shows this correspondence
+and explains where the code combines several pseudocode operations.
 
-| Paper listing / definition | Code | Notes |
+| Paper listing or definition | Code | Notes |
 |---|---|---|
-| Listing `p-micro` | `engine.p_micro_sample`, `engine.p_micro_pmf` | pmf (2/3, 1/3) on {ℓ*, ℓ*+1}. |
-| Listing `micro` | forward-search loop inside `build_leaf_rand` | Fused with the integration: the level search integrates each candidate level and exits at the first level whose H_eff swing stays within δ, rather than calling a separate `micro` routine; the accepted level's endpoint is reused (valid by time-symmetry). A fully failed search sets the sentinel ℓ* = ℓ_max + 1, so drawn levels reach ℓ_max + 2 (the listing's semantics). |
-| Listing `BAB` | `engine.b_step_update` (B step) + position drift inside `build_leaf_rand` | Closed-form B step of Proposition *b-step*; ΔlogJ = −(d−1) log(cosh β + γ₀ sinh β) evaluated in the numerically stable form −(d−1)(δ + log pre). Backward steps negate ρ, step forward, and negate back (time reversal). |
-| Listing `build-leaf-rand` | `build_leaf_rand` inside `engine.make_sampler` | Forward micro search, p-micro draw, reverse micro search over ℓ < ℓ_p (the forward swing is reused at ℓ_p itself, exact by time-symmetry), and the weight update with the Hastings ratio p(ℓ\|ℓ*₋)/p(ℓ\|ℓ*). Weight −∞ iff the reverse check fails or ℓ leaves the reverse pmf's support. |
-| Listing `walnuts-step`, `extend-orbit` | U-turn branch of `run` in `engine.make_sampler`, with `_set_leaf`, `_merge_orbits`, `_copy_orbit` | Stochastic doubling; within-extension merges use Barker selection with sub-U-turn checks on every merged subtree (`merge_mode = −1`); the top-level old-orbit/extension merge is biased toward the fresh block (`merge_mode = 1` growing right, `0` growing left). A zero-weight leaf or sub-U-turn discards the whole candidate extension before any merge (stop = 1); a U-turn across the merged orbit terminates after the biased merge (stop = 2). O(log L) memory via the merge stack. |
-| First-return driver (`walnuts-fr`) | first-return branch of `run` in `engine.make_sampler` | Streaming reservoir realizes the within-extension categorical draw in O(1) memory; the biased-progressive merge accepts the extension's candidate with probability min(1, W_ext/W). Rounds whose arm has terminated are skipped with the round counter still advancing. |
-| `draw-section` | inline in the first-return branch | Fresh η uniform on the sphere and γ uniform on the sphere orthogonal to η per transition, section centered at C. For the anchored rule no section direction is needed, but the γ draw is retained (and discarded) because the published runs consumed it: keeping it reproduces every published chain bit for bit. |
-| Listing `cross-halfhyperplane` / Def. *pair-cross* | `engine.cross_halfhyperplane` | Unoriented sign change with crossing parameter t ∈ (0, 1] and side condition γᵀ(θ\* − C) > 0. |
-| Listing `cross-radial-max` / Def. *pair-cross* | `engine.cross_radial_max` | Oriented max-to-max test in forward physical time; the σ-reordering for backward-grown arms is realized by the `dir_` argument. |
-| Def. *frs* (first-return segment) | first-return branch | The crossing leaf terminates growth but is **not** retained as a selectable state. A zero-weight leaf clips the arm at the preceding positive-weight leaf (leaves built earlier in the same round are kept); the opposite arm continues independently. |
-| Eq. (Γ) tuning criterion | `tuning.tune_macro_step`, `tuning.make_nohalve_probe`, `tuning.expand_gamma_bracket` | P(micro = 0) = Γ = 0.80 estimated on a calibration chain (first-return rules calibrated with C = 0), geometric bisection, 24 iterations. |
-| Section centers (Sec. 5.2) | `tuning.estimate_section_center` | Coordinate-wise median of a Poincaré calibration chain at the tuned h; frozen before warmup and production. |
-| ESS (Geyer IPS), eqs. (essgrad), (esjdgrad) | `diagnostics.ess_geyer`, `diagnostics.summarize_chain` | G_N charges **all** production gradients, including failed and crossing leaves; calibration and warmup gradients are excluded. |
-| Experimental protocol (Sec. 5.2) | `grid.run_cell`, `grid.main` | Seed arithmetic `20260627 + 100000·ti + 10000·fi + 1000·ri + si`; N_cal = N_warm = N_prod = 2000; K = 3 seeds; δ = 0.05, i_max = 12, ℓ_max = 10; h_warm = 0.10 (Hamiltonian) / 0.50 (isokinetic). |
+| Listing `p-micro` | `engine.p_micro_sample`, `engine.p_micro_pmf` | Selects ℓ* with probability 2/3 and ℓ*+1 with probability 1/3. |
+| Listing `micro` | Forward level-search loop inside `build_leaf_rand` | The code searches and integrates at the same time. It starts at level 0 and stops at the first level whose effective-energy range is at most δ. The accepted endpoint is reused. If no level through ℓ_max is acceptable, the search returns the default value ℓ_max+1; the subsequent random choice may therefore be as large as ℓ_max+2. |
+| Listing `BAB` | `engine.b_step_update` and the position update inside `build_leaf_rand` | Applies a half B step, a full position update, and a second half B step. The B step uses the stable form of its closed solution and log-Jacobian. Backward integration uses time reversal: negate ρ, take a forward step, and negate ρ again. |
+| Listing `build-leaf-rand` | `build_leaf_rand` inside `engine.make_sampler` | Performs the forward level search, samples ℓ′, and performs the same capped search from the proposed endpoint in reverse. If ℓ′ is within the cap, time-symmetry allows the forward effective-energy range to be reused. If no capped reverse level is acceptable, the reverse search returns ℓ_max+1. The leaf weight includes the Hastings ratio $p_{\mathrm{micro}}(\ell'\mid\ell^+)/p_{\mathrm{micro}}(\ell'\mid\ell^*)$; it is zero when the numerator is zero. |
+| Listings `WALNUTS-STEP` and `extend-orbit` | First-return branch of `run` in `engine.make_sampler` | At doubling round i, the code chooses a direction and attempts at most 2^i new leaves. Growth in that direction stops at its first section crossing or zero-weight leaf. The boundary leaf is not selectable. The selected leaf is updated online, so memory use does not increase with the orbit length. The newly generated extension replaces the current selection with probability $\min(1,W_{\rm ext}/W)$. |
+| Standard U-turn driver | U-turn branch of `run`, with `_set_leaf`, `_merge_orbits`, and `_copy_orbit` | Uses stochastic doubling and checks every completed subtree for a U-turn. A zero-weight leaf or a U-turn inside the new extension rejects that extension before it is joined to the existing orbit (stop code 1). A U-turn across the complete joined orbit stops the transition after selection (stop code 2). The merge stack uses O(log L) memory. |
+| `draw-section` | First-return branch of `run` | At each transition, η is drawn uniformly from the unit sphere and γ uniformly from the unit sphere orthogonal to η; the section is centered at C. The anchored radial rule does not use η or γ. The code nevertheless retains these unused draws so that commit `d667ab4` reproduces the random-number sequence used for the reported experiments. |
+| Listing `cross-halfhyperplane` / Definition *pair-cross* | `engine.cross_halfhyperplane` | Checks for a sign change across the half-hyperplane. The interpolated crossing time must lie in (0,1], and the crossing point must satisfy γᵀ(θ*−C)>0. |
+| Listing `cross-radial-max` / Definition *pair-cross* | `engine.cross_radial_max` | Checks whether the radial derivative changes from positive to negative in forward physical time. For backward integration, `dir_` reverses the generation order before applying the test. |
+| Definition *frs* (first-return segment) | First-return branch of `run` | A crossing or zero-weight leaf stops growth in that direction and is not selectable. Leaves accepted earlier in the same doubling round are kept, and growth in the other direction may continue. |
+| Equation (Γ) tuning criterion | `tuning.tune_macro_step`, `tuning.make_nohalve_probe`, `tuning.expand_gamma_bracket` | Chooses h so that level 0 is acceptable with probability Γ=0.80, estimated from a calibration chain. The search uses 24 geometric-bisection iterations. First-return rules use C=0 during this calibration. |
+| Section centers (Section 5.2) | `tuning.estimate_section_center` | Uses the coordinate-wise median of a Poincaré calibration chain. The center is then held fixed during warmup and production. |
+| ESS and ESJD per gradient | `diagnostics.ess_geyer`, `diagnostics.summarize_chain` | Counts every production gradient evaluation, including evaluations for zero-weight and crossing leaves. Calibration and warmup are not included. |
+| Experiment settings (Section 5.2) | `grid.run_cell`, `grid.main` | Uses seed `20260627 + 100000·ti + 10000·fi + 1000·ri + si`; 2,000 calibration, warmup, and production draws; 3 seeds; δ=0.05; i_max=12; ℓ_max=10; and initial step size 0.10 for Hamiltonian flow or 0.50 for isokinetic flow. |
 
-## Stop codes reported by `run`
+## Stop codes returned by `run`
 
-| code | meaning |
+| Code | Meaning |
 |---|---|
-| 1 | candidate rejected: zero-weight (reversibility-failure) leaf; for the U-turn rule also a sub-U-turn inside the extension |
-| 2 | U-turn across the merged orbit (normal termination, U-turn rule) |
-| 3 | both arms returned to the section (normal termination, first-return rules) |
-| 4 | orbit-size cap 2^i_max reached without a zero-weight leaf |
+| 1 | A zero-weight leaf was encountered; for the U-turn rule, this code also covers a U-turn inside the proposed extension. |
+| 2 | The complete joined orbit made a U-turn. |
+| 3 | Both integration directions reached their first section crossing. |
+| 4 | The orbit reached the limit 2^i_max without encountering a zero-weight leaf. |
 
 `cap_rate` in the result tables is the fraction of transitions with code 4;
-`candidate_reject_rate` is the fraction with code 1 (note the code-1
-semantics differ between the U-turn and first-return families, so this
-column should not be compared across families).
+`candidate_reject_rate` is the fraction with code 1.  Code 1 has a broader
+meaning for the U-turn sampler than for the first-return samplers, so this
+rate should not be compared across the two families.
