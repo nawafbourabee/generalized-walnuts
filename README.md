@@ -8,8 +8,7 @@ Companion code for
 
 The package implements the paper's six samplers, obtained by pairing two
 measure-preserving flows with three initial-point-symmetric stopping rules.
-It also includes the experiment driver used to produce every table in
-Section 5.
+It also includes the driver used to produce every table in Section 5.
 
 |  | standard U-turn | half-hyperplane Poincaré | anchored radial max-to-max |
 |---|---|---|---|
@@ -18,10 +17,10 @@ Section 5.
 
 All six use the same within-orbit refinement and orbit-selection procedure.
 Each macro step is divided into 2^ℓ micro steps, where the level ℓ is
-randomized and its probability is included in the Hastings ratio.  The six
+randomized and its probability is included in the weights.  The six
 samplers differ only in their flow and stopping rule.
 
-**Headline result** (Section 5): the isokinetic anchored sampler
+**Main result** (Section 5): the isokinetic anchored sampler
 `walnuts-ai` was the most robust of the six variants.  On Neal's funnel, its
 ESS per gradient was about **10.9×** that of `walnuts-h`.  It also performed
 well on nonlinear and hierarchical targets, with about 10% overhead on an
@@ -78,8 +77,7 @@ compute the ESS-per-gradient diagnostics.
 The full experiment contains 7 targets × 6 samplers × 3 seeds.  Each
 target–sampler combination uses 2,000 draws for calibration, 2,000 for
 warmup, and 2,000 for production, together with a step-size search.  The full
-run takes several hours on one CPU core; the Poincaré samplers account for
-most of the cost.
+run takes several hours on one CPU core.
 
 ```bash
 gwalnuts-grid --outdir production_grid
@@ -106,21 +104,11 @@ deviations over seeds.  The paper's tables report the seed means from
   `20260627 + 100000·ti + 10000·fi + 1000·ri + si`, where the indices identify
   the target, flow, stopping rule, and replicate.  Unit tests fix both this
   formula and the ordering of those choices.
-* Commit
-  [`d667ab4`](https://github.com/nawafbourabee/generalized-walnuts/tree/d667ab449919de6cce5cc1cb9d724a654163c791)
-  contains the implementation used for the reported experiments.  The
-  current version corrects the reverse level search when no level at or below
-  `ell_max` satisfies the effective-energy tolerance.  This correction can
-  change a transition only when that cap is reached.
 * With fixed NumPy, Numba, and BLAS versions, a run is deterministic.
   Different numerical-library versions can introduce small rounding
   differences, after which the trajectories may separate.  Results should
   therefore be compared statistically across software environments rather
   than sample by sample.
-* Computational cost can vary substantially between seeds on funnel-shaped
-  targets such as eight schools and stochastic volatility.  Some chains
-  require much finer micro steps, especially near the funnel neck.  The
-  `_sd` columns of `summary_results.csv` show this variation.
 
 ## Tests
 
