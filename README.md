@@ -23,7 +23,7 @@ samplers differ only in their flow and stopping rule.
 
 **Headline result** (Section 5): the isokinetic anchored sampler
 `walnuts-ai` was the most robust of the six variants.  On Neal's funnel, its
-ESS per gradient was about **10.8×** that of `walnuts-h`.  It also performed
+ESS per gradient was about **10.9×** that of `walnuts-h`.  It also performed
 well on nonlinear and hierarchical targets, with about 10% overhead on an
 easy Gaussian-regression target where the standard U-turn sampler was already
 effective.
