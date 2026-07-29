@@ -19,7 +19,7 @@ def make_nohalve_probe(logp, grad_logp, flow_code):
     """Compiled estimator of P(micro(theta, rho, h, delta) = 0).
 
     ``micro = 0`` means one level-0 macro step keeps the effective-energy
-    swing within delta.
+    range within delta.
     """
     @njit(cache=False)
     def ham_energy(theta, rho):

@@ -5,6 +5,7 @@ import pytest
 
 from gwalnuts import (b_step_update, cross_halfhyperplane, cross_radial_max,
                       p_micro_pmf, uturn)
+from gwalnuts.engine import _reverse_p_micro_numerator
 from gwalnuts.targets import make_targets, finite_difference_check
 
 
@@ -18,6 +19,23 @@ def test_p_micro_pmf_normalized_and_supported():
         assert p_micro_pmf(i + 1, i) == pytest.approx(1.0 / 3.0)
         assert p_micro_pmf(i + 2, i) == 0.0
         assert p_micro_pmf(i - 1, i) == 0.0
+
+
+def test_reverse_p_micro_numerator_at_cap_boundary():
+    max_ell = 10
+
+    # If no capped reverse level is admissible, micro returns max_ell + 1.
+    assert _reverse_p_micro_numerator(max_ell + 1, max_ell, -1) == pytest.approx(2.0 / 3.0)
+    assert _reverse_p_micro_numerator(max_ell + 2, max_ell, -1) == pytest.approx(1.0 / 3.0)
+
+    # A selected level at the cap has reverse support only if the reverse
+    # search first succeeds at max_ell or max_ell - 1, respectively.
+    assert _reverse_p_micro_numerator(max_ell + 1, max_ell, max_ell) == pytest.approx(1.0 / 3.0)
+    assert _reverse_p_micro_numerator(max_ell + 1, max_ell, max_ell - 1) == 0.0
+
+    # If ell_p is within the cap and no searched level succeeds, the default
+    # reverse level lies above ell_p and the numerator is zero.
+    assert _reverse_p_micro_numerator(max_ell, max_ell, -1) == 0.0
 
 
 # ---- crossing predicates ---------------------------------------------------
@@ -56,12 +74,12 @@ def test_radial_max_oriented_and_reordered():
     rho_out = np.array([1.0, 0.0])   # phi = +1 (moving away from C)
     th_out = np.array([1.5, 0.0])
     rho_in = np.array([-1.0, 0.0])   # phi = -1 (moving back toward C)
-    # forward arm: + to - is a radial maximum -> crossing
+    # Forward integration: + to - is a radial maximum -> crossing.
     assert cross_radial_max(th_in, rho_out, th_out, rho_in, C, 1)
     # - to + is a radial minimum -> not a crossing (oriented rule)
     assert not cross_radial_max(th_out, rho_in, th_in, rho_out, C, 1)
-    # backward arm: pair arrives in generation order; sigma-reordering makes
-    # the same physical maximum fire with dir_ = -1
+    # During backward integration the pair arrives in generation order;
+    # sigma-reordering makes the same physical maximum fire with dir_ = -1.
     assert cross_radial_max(th_out, rho_in, th_in, rho_out, C, -1)
     assert not cross_radial_max(th_in, rho_out, th_out, rho_in, C, -1)
 
@@ -89,7 +107,7 @@ def test_b_step_unit_norm_and_closed_form():
             s = 0.3
             rho_new, dlogJ = b_step_update(g, rho, s)
             assert np.linalg.norm(rho_new) == pytest.approx(1.0, abs=1e-12)
-            # b_step_update realizes the half B kick of the BAB splitting:
+            # b_step_update applies the half B kick of the BAB splitting:
             # beta = (s/2) ||g|| / (d - 1).
             xi = np.linalg.norm(g); e = g / xi; g0 = rho @ e
             beta = s * xi / (2.0 * (d - 1))

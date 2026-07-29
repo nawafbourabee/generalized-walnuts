@@ -9,23 +9,19 @@ This module implements the six production samplers of the companion paper
 Function names follow the paper's pseudocode listings; see LISTINGS.md for
 the full mapping.  In brief:
 
-===========================  ==========================================
-paper listing                function here
-===========================  ==========================================
-``p-micro``                  :func:`p_micro_sample`, :func:`p_micro_pmf`
-``micro``                    forward-search loop inside ``build_leaf_rand``
-``BAB``                      ``b_step`` + drift inside ``build_leaf_rand``
-``build-leaf-rand``          ``build_leaf_rand`` (inside :func:`make_sampler`)
-``cross-halfhyperplane``     :func:`cross_halfhyperplane`
-``cross-radial-max``         :func:`cross_radial_max`
-``walnuts-step`` driver      ``run`` returned by :func:`make_sampler`
-===========================  ==========================================
+* ``p-micro``: :func:`p_micro_sample` and :func:`p_micro_pmf`
+* ``micro``: forward level search inside ``build_leaf_rand``
+* ``BAB``: ``b_step`` and the position update inside ``build_leaf_rand``
+* ``build-leaf-rand``: ``build_leaf_rand`` inside :func:`make_sampler`
+* section-crossing listings: :func:`cross_halfhyperplane` and
+  :func:`cross_radial_max`
+* ``WALNUTS-STEP`` and ``extend-orbit``: first-return branch of ``run``
+* standard U-turn sampler: U-turn branch of ``run``
 
-The numerical core is byte-identical (same floating-point operations, same
-random-number call sequence) to the code that produced the results reported
-in the paper; only exploratory stopping rules that do not appear in the
-paper have been removed, and public names have been aligned with the
-listings.
+Commit ``d667ab449919de6cce5cc1cb9d724a654163c791`` contains the numerical
+code used for the reported experiments.  The current version corrects the
+capped reverse level search in ``build_leaf_rand`` when no tested level is
+admissible.
 """
 
 import numpy as np
@@ -85,6 +81,20 @@ def p_micro_pmf(j, i):
 
 
 @njit(cache=False)
+def _reverse_p_micro_numerator(ell_p, max_ell, ell_plus):
+    """Return p_micro(ell_p | ell_plus) after the capped reverse search.
+
+    ``ell_plus`` is the smallest admissible level among 0, ..., ``max_ell``,
+    or -1 if none of those levels is admissible.  In the latter case the
+    reverse search has the default value ``max_ell + 1``.  In particular,
+    levels above the cap are never themselves tested for admissibility.
+    """
+    if ell_plus < 0:
+        ell_plus = max_ell + 1
+    return p_micro_pmf(ell_p, ell_plus)
+
+
+@njit(cache=False)
 def _random_unit(d):
     z = np.random.standard_normal(d)
     return z / np.linalg.norm(z)
@@ -115,7 +125,7 @@ def cross_halfhyperplane(t_prev, t_new, eta, gamma_v, C):
 def b_step_update(g, rho, s_macro):
     """Closed-form isokinetic half B kick given the gradient (Listing BAB).
 
-    Realizes the B step of the BAB splitting over time ``s_macro / 2``:
+    Applies the B step of the BAB splitting over time ``s_macro / 2``:
     rotates the unit direction ``rho`` toward the normalized gradient and
     returns ``(rho_new, dlogJ)`` with
     ``dlogJ = -(d-1) log(cosh beta + gamma_0 sinh beta)`` computed in the
@@ -144,7 +154,7 @@ def cross_radial_max(t_prev, r_prev, t_new, r_new, C, dir_):
 
     Oriented crossing of the anchored radial section: the radial derivative
     phi(z) = (theta - C)^T rho changes sign from + to - along the flow in
-    forward physical time.  For a backward-grown arm (``dir_ == -1``) the
+    forward physical time.  During backward integration (``dir_ == -1``), the
     pair arrives in generation order, so the test is applied with the roles
     of the two leaves exchanged (the sigma-reordering of the listing).
     """
@@ -156,10 +166,10 @@ def cross_radial_max(t_prev, r_prev, t_new, r_new, C, dir_):
 
 
 # ---------------------------------------------------------------------------
-# Orbit-node bookkeeping for the U-turn sampler (Listing walnuts-step,
-# extend-orbit).  A node stores the endpoints, size, categorical sample,
-# total weight, and admissibility flag of a (sub)orbit; the on-the-fly merge
-# stack realizes the binary-tree extension in O(log L) memory.
+# Orbit-node bookkeeping for the standard U-turn sampler.  A node stores the
+# endpoints, size, categorical sample, total weight, and admissibility flag of
+# a (sub)orbit; the on-the-fly merge stack stores the binary-tree extension in
+# O(log L) memory.
 # ---------------------------------------------------------------------------
 
 @njit(cache=False)
@@ -285,7 +295,7 @@ def make_sampler(logp, grad_logp, flow_code, stop_code):
         * ``stop``    -- termination code per transition:
           1 = candidate rejected (zero-weight leaf; for the U-turn rule also
           a sub-U-turn inside the extension), 2 = orbit-level U-turn,
-          3 = both arms returned to the section, 4 = size cap 2^i_max;
+          3 = both directions returned to the section, 4 = size cap 2^i_max;
         * ``built``   -- leaves built per transition (including discarded);
         * ``selected_idx`` -- orbit index of the selected leaf
           (U-turn rule; -1 for first-return rules).
@@ -309,14 +319,16 @@ def make_sampler(logp, grad_logp, flow_code, stop_code):
     def build_leaf_rand(theta, rho, logw_start, dir_, h, delta, max_ell, ngrad):
         """One macro leaf with randomized micro level (Listing build-leaf-rand).
 
-        Forward search = Listing micro fused with the integration: the
-        smallest level ell* <= max_ell whose H_eff swing stays within delta
-        (sentinel ell* = max_ell + 1 if none does); ell is then drawn from
+        The forward search combines Listing micro with the integration.  It
+        finds the smallest level ell* <= max_ell whose H_eff range stays
+        within delta
+        (default ell* = max_ell + 1 if none does); ell is then drawn from
         p-micro, the level-ell* integration being reused when ell = ell*
         (valid by time-symmetry).  The reverse search recomputes micro from
-        the new leaf, and the weight update carries the Hastings ratio
+        the new leaf over the same capped levels, and the weight update carries
+        the Hastings ratio
         p(ell | ell*_rev) / p(ell | ell*); the weight is -inf when the
-        reverse check fails or ell falls outside the reverse pmf's support.
+        selected level falls outside the reverse pmf's support.
         """
         q0 = rho.copy()
         d = theta.shape[0]
@@ -363,31 +375,34 @@ def make_sampler(logp, grad_logp, flow_code, stop_code):
                     if H < Hmin: Hmin = H
                 sw_leaf = Hmax - Hmin
             D = H_old - ham_energy(th1, rh_int)
-            ell_plus = ell_p; rev = (sw_leaf <= delta)
-            for ell in range(ell_p):
-                n = 1 << ell; s = -dir_ * h / n
-                th = th1.copy(); rh = rh_int.copy()
-                H = ham_energy(th, rh); Hmax = H; Hmin = H
-                g = grad_logp(th, ngrad)
-                ok = True
-                for _ in range(n):
-                    rh = rh + 0.5 * s * g
-                    th = th + s * rh
+            ell_plus = -1
+            for ell in range(min(ell_p, max_ell) + 1):
+                if ell == ell_p:
+                    # Exact time-symmetry gives the same range in reverse.
+                    ok = (sw_leaf <= delta)
+                else:
+                    n = 1 << ell; s = -dir_ * h / n
+                    th = th1.copy(); rh = rh_int.copy()
+                    H = ham_energy(th, rh); Hmax = H; Hmin = H
                     g = grad_logp(th, ngrad)
-                    rh = rh + 0.5 * s * g
-                    H = ham_energy(th, rh)
-                    if H > Hmax: Hmax = H
-                    if H < Hmin: Hmin = H
-                    if Hmax - Hmin > delta:
-                        ok = False
-                        break
+                    ok = True
+                    for _ in range(n):
+                        rh = rh + 0.5 * s * g
+                        th = th + s * rh
+                        g = grad_logp(th, ngrad)
+                        rh = rh + 0.5 * s * g
+                        H = ham_energy(th, rh)
+                        if H > Hmax: Hmax = H
+                        if H < Hmin: Hmin = H
+                        if Hmax - Hmin > delta:
+                            ok = False
+                            break
                 if ok:
-                    ell_plus = ell; rev = True; break
-            if rev:
-                pn = p_micro_pmf(ell_p, ell_plus); pd = p_micro_pmf(ell_p, ell_star)
-                lw = logw_start + D + np.log(pn) - np.log(pd) if pn > 0.0 and pd > 0.0 else -np.inf
-            else:
-                lw = -np.inf
+                    ell_plus = ell
+                    break
+            pn = _reverse_p_micro_numerator(ell_p, max_ell, ell_plus)
+            pd = p_micro_pmf(ell_p, ell_star)
+            lw = logw_start + D + np.log(pn) - np.log(pd) if pn > 0.0 and pd > 0.0 else -np.inf
             return th1, rh_int, lw, g1
 
         # Isokinetic BAB branch.
@@ -446,42 +461,45 @@ def make_sampler(logp, grad_logp, flow_code, stop_code):
                 if H < Hmin: Hmin = H
             sw_leaf = Hmax - Hmin
         D = logp(th1) + lJ_leaf - l0
-        ell_plus = ell_p; rev = (sw_leaf <= delta)
-        for ell in range(ell_p):
-            n = 1 << ell; s = -dir_ * h / n
-            th = th1.copy(); q = q_int.copy(); logJ = 0.0
-            H = -logp(th); Hmax = H; Hmin = H
-            ok = True; gtmp = np.empty(d)
-            for _ in range(n):
-                if s >= 0.0:
-                    qm, dJ1, _ = b_step(th, q, s, ngrad)
-                    th = th + s * qm
-                    q, dJ2, gtmp = b_step(th, qm, s, ngrad)
-                else:
-                    sp = -s
-                    qm, dJ1, _ = b_step(th, -q, sp, ngrad)
-                    th = th + sp * qm
-                    qtmp, dJ2, gtmp = b_step(th, qm, sp, ngrad)
-                    q = -qtmp
-                logJ += dJ1 + dJ2
-                H = -logp(th) - logJ
-                if H > Hmax: Hmax = H
-                if H < Hmin: Hmin = H
-                if Hmax - Hmin > delta:
-                    ok = False
-                    break
+        ell_plus = -1
+        for ell in range(min(ell_p, max_ell) + 1):
+            if ell == ell_p:
+                # Exact time-symmetry gives the same range in reverse.
+                ok = (sw_leaf <= delta)
+            else:
+                n = 1 << ell; s = -dir_ * h / n
+                th = th1.copy(); q = q_int.copy(); logJ = 0.0
+                H = -logp(th); Hmax = H; Hmin = H
+                ok = True; gtmp = np.empty(d)
+                for _ in range(n):
+                    if s >= 0.0:
+                        qm, dJ1, _ = b_step(th, q, s, ngrad)
+                        th = th + s * qm
+                        q, dJ2, gtmp = b_step(th, qm, s, ngrad)
+                    else:
+                        sp = -s
+                        qm, dJ1, _ = b_step(th, -q, sp, ngrad)
+                        th = th + sp * qm
+                        qtmp, dJ2, gtmp = b_step(th, qm, sp, ngrad)
+                        q = -qtmp
+                    logJ += dJ1 + dJ2
+                    H = -logp(th) - logJ
+                    if H > Hmax: Hmax = H
+                    if H < Hmin: Hmin = H
+                    if Hmax - Hmin > delta:
+                        ok = False
+                        break
             if ok:
-                ell_plus = ell; rev = True; break
-        if rev:
-            pn = p_micro_pmf(ell_p, ell_plus); pd = p_micro_pmf(ell_p, ell_star)
-            lw = logw_start + D + np.log(pn) - np.log(pd) if pn > 0.0 and pd > 0.0 else -np.inf
-        else:
-            lw = -np.inf
+                ell_plus = ell
+                break
+        pn = _reverse_p_micro_numerator(ell_p, max_ell, ell_plus)
+        pd = p_micro_pmf(ell_p, ell_star)
+        lw = logw_start + D + np.log(pn) - np.log(pd) if pn > 0.0 and pd > 0.0 else -np.inf
         return th1, q_int, lw, g1
 
     @njit(cache=False)
     def run(theta0, C, n_iter, h, delta, i_max, max_ell, seed):
-        """Run ``n_iter`` transitions (Listing walnuts-step per transition)."""
+        """Run ``n_iter`` transitions of the selected sampler."""
         np.random.seed(seed); d = theta0.shape[0]
         nslots = i_max + 4; cur = i_max + 1; tmp = i_max + 2; cand = i_max + 3
         lth = np.zeros((nslots, d)); rth = np.zeros((nslots, d))
@@ -513,7 +531,7 @@ def make_sampler(logp, grad_logp, flow_code, stop_code):
             dr = 0; nbuilt = 0; reason = 0
 
             if stop_code == STOP_POINCARE or stop_code == STOP_RADIAL_MAX:
-                # ---- first-return driver (Listing walnuts-fr) ----
+                # ---- first-return driver (Listings WALNUTS-STEP, extend-orbit) ----
                 if stop_code == STOP_RADIAL_MAX:
                     eta = np.zeros(d)
                     Csec = np.zeros(d)
@@ -549,7 +567,7 @@ def make_sampler(logp, grad_logp, flow_code, stop_code):
                             th, rh, lw, dir_, h, delta, max_ell, ngrad)
                         if lw_new == -np.inf:
                             # zero-weight leaf: boundary of the attempted
-                            # extension; not selectable, arm terminates.
+                            # extension; not selectable, this direction stops.
                             nbuilt += 1
                             failed = True
                             failed_any = True
@@ -559,9 +577,9 @@ def make_sampler(logp, grad_logp, flow_code, stop_code):
                         else:
                             crossed_now = cross_halfhyperplane(th, th_new, eta, gamma_v, Csec)
                         if crossed_now:
-                            # First-return convention: the crossing leaf is a
-                            # sentinel that terminates growth but is not
-                            # retained as a selectable state (Def. frs).
+                            # First-return convention: the crossing leaf stops
+                            # growth but is not retained as a selectable state
+                            # (Definition frs).
                             crossed = True; break
                         nbuilt += 1
                         newW = _logsumexp2(eW, lw_new)
@@ -591,7 +609,7 @@ def make_sampler(logp, grad_logp, flow_code, stop_code):
                 selected_idx[t] = -1
                 continue
 
-            # ---- standard U-turn driver (Listings walnuts-step, extend-orbit) ----
+            # ---- standard U-turn driver ----
             for depth in range(i_max):
                 dir_ = 1 if np.random.random() < 0.5 else -1
                 for j in range(i_max + 1):

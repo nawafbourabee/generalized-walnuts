@@ -6,30 +6,32 @@ Companion code for
 > **WALNUTS with General Measure-Preserving Flows and Initial-Point-Symmetric
 > Stopping Rules.** 2026.
 
-The package implements the paper's six samplers — two measure-preserving
-flows crossed with three initial-point-symmetric stopping rules — and the
-production grid that generates every table in Section 5.
+The package implements the paper's six samplers, obtained by pairing two
+measure-preserving flows with three initial-point-symmetric stopping rules.
+It also includes the experiment driver used to produce every table in
+Section 5.
 
 |  | standard U-turn | half-hyperplane Poincaré | anchored radial max-to-max |
 |---|---|---|---|
 | **Hamiltonian flow** (leapfrog micro steps) | `walnuts-h` | `walnuts-ph` | `walnuts-ah` |
 | **Isokinetic flow** (BAB micro steps, unconditionally stable) | `walnuts-i` | `walnuts-pi` | `walnuts-ai` |
 
-All six share the WALNUTS within-orbit step-size adaptation (macro steps
-split into 2^ℓ micro steps, with the randomized level selection and exact
-Hastings correction of the paper) and the same orbit-selection mechanism;
-only the flow and the stopping rule change.
+All six use the same within-orbit refinement and orbit-selection procedure.
+Each macro step is divided into 2^ℓ micro steps, where the level ℓ is
+randomized and its probability is included in the Hastings ratio.  The six
+samplers differ only in their flow and stopping rule.
 
 **Headline result** (Section 5): the isokinetic anchored sampler
-`walnuts-ai` is the most robust of the six variants, improving ESS per
-gradient by about **10.8×** over `walnuts-h` on Neal's funnel and performing
-strongly on nonlinear and hierarchical targets, while paying only ~10%
-overhead on an easy Gaussian-regression target where the standard U-turn
-sampler already excels.
+`walnuts-ai` was the most robust of the six variants.  On Neal's funnel, its
+ESS per gradient was about **10.8×** that of `walnuts-h`.  It also performed
+well on nonlinear and hierarchical targets, with about 10% overhead on an
+easy Gaussian-regression target where the standard U-turn sampler was already
+effective.
 
-Function names follow the paper's pseudocode listings; **[LISTINGS.md](LISTINGS.md)**
-gives the complete listing-by-listing map, including the few places where a
-listing is realized in fused or streaming form.
+Function names follow the paper's pseudocode listings.
+**[LISTINGS.md](LISTINGS.md)** shows where each listing appears in the code
+and explains where several pseudocode operations are combined into one
+routine.
 
 This repository accompanies the paper and generalizes the original WALNUTS
 algorithm; for the reference implementation of standard WALNUTS
@@ -66,23 +68,25 @@ samples, depths, sizes, ngrad, stop, built, sel = run(
 )
 ```
 
-Custom targets are two Numba-jitted functions: `logp(theta) -> float` and
-`grad_logp(theta, ngrad) -> ndarray`, where `grad_logp` increments
-`ngrad[0]` once per call (this side effect is the gradient accounting behind
-the ESS-per-gradient diagnostics).
+A custom target is specified by two Numba-compiled functions:
+`logp(theta) -> float` and `grad_logp(theta, ngrad) -> ndarray`.  The gradient
+function must increment `ngrad[0]` once per call.  This counter is used to
+compute the ESS-per-gradient diagnostics.
 
 ## Reproducing the paper
 
-The full grid (7 targets × 6 samplers × 3 seeds, each cell with 2000-draw
-calibration, warmup, and production plus step-size bisection) is a long run —
-hours on a single core, dominated by the Poincaré cells:
+The full experiment contains 7 targets × 6 samplers × 3 seeds.  Each
+target–sampler combination uses 2,000 draws for calibration, 2,000 for
+warmup, and 2,000 for production, together with a step-size search.  The full
+run takes several hours on one CPU core; the Poincaré samplers account for
+most of the cost.
 
 ```bash
 gwalnuts-grid --outdir production_grid
 ```
 
-Any subset reproduces the corresponding published cells, because the cell
-seeds are addressed by index, not by position in the filtered list:
+You can run any subset without changing its seeds because each
+target–flow–rule combination has a fixed seed:
 
 ```bash
 gwalnuts-grid --target-key funnel_d11                       # one target
@@ -91,27 +95,32 @@ gwalnuts-grid --target-key eight_schools_centered \
 gwalnuts-grid --smoke                                        # tiny smoke run
 ```
 
-Outputs: `raw_results.csv` (one row per cell and seed, including the tuning
-trace), `summary_results.csv` / `summary_results.md` (means ± sd over seeds).
-The paper's tables are the seed means of `raw_results.csv`.
+The command writes `raw_results.csv`, with one row per combination and seed,
+and `summary_results.csv` and `summary_results.md`, with means and standard
+deviations over seeds.  The paper's tables report the seed means from
+`raw_results.csv`.
 
 ### Reproducibility notes
 
-* The seed arithmetic `20260627 + 100000·ti + 10000·fi + 1000·ri + si` and
-  the target/flow/rule orderings define the published runs and are frozen by
-  a unit test.
-* On a fixed NumPy/Numba/BLAS stack, reruns are deterministic and the
-  sampler is bit-for-bit equivalent to the code that produced the paper's
-  results (verified for all six samplers).  Across different
-  versions, last-bit rounding differences are amplified by the chaotic
-  dynamics, so individual cells reproduce statistically (within seed-to-seed
-  spread) rather than bitwise.
-* Per-seed costs are heavy-tailed on the funnel-like targets (eight schools,
-  stochastic volatility): occasional seeds spend long stretches at deep
-  micro-refinement, and the Γ-tuning root can be poorly conditioned when the
-  calibration chain visits the funnel neck.  Expect visibly larger
-  seed-to-seed variance there; the `_sd` columns of `summary_results.csv`
-  quantify it.
+* The published seed is
+  `20260627 + 100000·ti + 10000·fi + 1000·ri + si`, where the indices identify
+  the target, flow, stopping rule, and replicate.  Unit tests fix both this
+  formula and the ordering of those choices.
+* Commit
+  [`d667ab4`](https://github.com/nawafbourabee/generalized-walnuts/tree/d667ab449919de6cce5cc1cb9d724a654163c791)
+  contains the implementation used for the reported experiments.  The
+  current version corrects the reverse level search when no level at or below
+  `ell_max` satisfies the effective-energy tolerance.  This correction can
+  change a transition only when that cap is reached.
+* With fixed NumPy, Numba, and BLAS versions, a run is deterministic.
+  Different numerical-library versions can introduce small rounding
+  differences, after which the trajectories may separate.  Results should
+  therefore be compared statistically across software environments rather
+  than sample by sample.
+* Computational cost can vary substantially between seeds on funnel-shaped
+  targets such as eight schools and stochastic volatility.  Some chains
+  require much finer micro steps, especially near the funnel neck.  The
+  `_sd` columns of `summary_results.csv` show this variation.
 
 ## Tests
 
@@ -120,10 +129,10 @@ pytest                # fast set: closed forms, predicates, gradients, 2 invaria
 pytest -m slow        # full invariance suite (all six samplers) + grid smoke run
 ```
 
-The invariance tests are the end-to-end correctness check: each sampler must
-recover N(0, I) exactly under stress settings (macro step beyond the
-leapfrog stability limit, micro-level cap binding) where reversibility
-failures occur in a large fraction of transitions.
+The invariance tests check the complete transition procedure on $N(0,I)$.
+They use deliberately difficult settings: the macro step exceeds the
+leapfrog stability limit, the micro-level cap is reached, and zero-weight
+leaves occur frequently.
 
 ## Layout
 
