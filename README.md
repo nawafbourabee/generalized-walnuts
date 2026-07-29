@@ -15,10 +15,14 @@ It also includes the driver used to produce every table in Section 5.
 | **Hamiltonian flow** (leapfrog micro steps) | `walnuts-h` | `walnuts-ph` | `walnuts-ah` |
 | **Isokinetic flow** (BAB micro steps, unconditionally stable) | `walnuts-i` | `walnuts-pi` | `walnuts-ai` |
 
-All six use the same within-orbit refinement and orbit-selection procedure.
-Each macro step is divided into 2^ℓ micro steps, where the level ℓ is
-randomized and its probability is included in the weights.  The six
-samplers differ only in their flow and stopping rule.
+All six samplers use the same within-orbit refinement, stochastic doubling, 
+and biased progressive orbit selection.  For each macro step of duration (h), 
+the refinement routine finds the smallest level (\ell^) for which the 
+effective-energy range is at most (\delta).  It then draws a level (\ell) from 
+(p_\micro(\cdot\mid\ell^)) and performs (2^\ell) micro steps of size (h2^{-\ell}).  
+The ratio of the reverse and forward level-selection probabilities enters the 
+leaf weight as a Hastings correction.  The six samplers differ only in their 
+flow and stopping rule.
 
 **Main result** (Section 5): the isokinetic anchored sampler
 `walnuts-ai` was the most robust of the six variants.  On Neal's funnel, its
